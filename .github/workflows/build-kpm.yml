@@ -1,0 +1,63 @@
+name: Build KPM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出 KernelSpoof
+        uses: actions/checkout@v4
+
+      - name: 检出 KernelPatch
+        uses: actions/checkout@v4
+        with:
+          repository: bmax121/KernelPatch
+          ref: main
+          path: KernelPatch
+          fetch-depth: 1
+
+      - name: 安装 Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - name: 安装 binutils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
+
+      - name: 配置编译器包装脚本
+        env:
+          NDK_BIN: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/aarch64-linux-android-gcc" <<'EOF'
+          #!/bin/sh
+          exec "$NDK_BIN/clang" --target=aarch64-linux-android24 "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/aarch64-linux-android-gcc"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
+          echo "NDK_BIN=$NDK_BIN" >> "$GITHUB_ENV"
+
+      - name: 构建 KernelSpoof KPM
+        env:
+          KP_DIR: ${{ github.workspace }}/KernelPatch
+        run: |
+          ./termux-build.sh
+          ls -l KernelSpoof_*.kpm
+
+      - name: 上传 KPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: KernelSpoof-kpm
+          path: KernelSpoof_*.kpm
+          if-no-files-found: error
